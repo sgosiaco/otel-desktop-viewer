@@ -1,0 +1,9 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "otel-desktop-viewer",
+  "outputfilename": "otel-desktop-viewer",
+  "author": {
+    "name": "Sean Gosiaco",
+    "email": "sgosiaco@me.com"
+  }
+}
