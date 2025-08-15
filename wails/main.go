@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -63,11 +65,11 @@ func main() {
 	}()
 
 	router := http.NewServeMux()
-	router.HandleFunc("GET /api/traces", redirect())
-	router.HandleFunc("GET /api/traces/{id}", redirect())
-	router.HandleFunc("GET /api/sampleData", redirect())
-	router.HandleFunc("GET /api/clearData", redirect())
-	router.HandleFunc("GET /traces/{id}", redirect())
+	router.HandleFunc("GET /api/traces", redirectUnix())
+	router.HandleFunc("GET /api/traces/{id}", redirectUnix())
+	router.HandleFunc("GET /api/sampleData", redirectUnix())
+	router.HandleFunc("GET /api/clearData", redirectUnix())
+	router.HandleFunc("GET /traces/{id}", redirectUnix())
 
 	// Create an instance of the app structure
 	app := NewApp()
@@ -196,6 +198,53 @@ func redirect() func(w http.ResponseWriter, r *http.Request) {
 		}
 
 		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+		defer res.Body.Close()
+
+		b, err := io.ReadAll(res.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+
+		if res.StatusCode != http.StatusOK {
+			w.WriteHeader(res.StatusCode)
+			w.Write(b)
+			return
+		}
+
+		for k, vv := range res.Header {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+
+		w.Write(b)
+	}
+}
+
+func redirectUnix() func(w http.ResponseWriter, r *http.Request) {
+	client := http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "unix", "internal.sock")
+			},
+		},
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://unix"+r.URL.Path, nil)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(err.Error()))
+			return
+		}
+
+		res, err := client.Do(req)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))

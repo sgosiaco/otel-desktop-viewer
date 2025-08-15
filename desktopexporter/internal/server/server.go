@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,10 +15,14 @@ import (
 	"golang.org/x/exp/jsonrpc2"
 )
 
-//go:embed static/*
-var assets embed.FS
+var (
+	//go:embed static/*
+	assets     embed.FS
+	socketFile = "internal.sock"
+)
 
 type Server struct {
+	listener       net.Listener
 	server         http.Server
 	jsonrpcHandler *JSONRPCHandler
 	staticDir      string
@@ -40,7 +45,20 @@ func NewServer(endpoint string, store *store.Store) *Server {
 }
 
 func (s *Server) Start() error {
-	return s.server.ListenAndServe()
+	// attempt to cleanup socket before continuing
+	if _, err := os.Stat(socketFile); err == nil {
+		if err := os.Remove(socketFile); err != nil {
+			return err
+		}
+	}
+
+	var err error
+	s.listener, err = net.Listen("unix", socketFile)
+	if err != nil {
+		return err
+	}
+
+	return s.server.Serve(s.listener)
 }
 
 func (s *Server) initHandler() error {
@@ -149,5 +167,13 @@ func getStaticDir() string {
 }
 
 func (s *Server) Close() error {
+	defer func() {
+		s.listener.Close()
+		if _, err := os.Stat(socketFile); err == nil {
+			if err := os.Remove(socketFile); err != nil {
+				log.Printf("Encountered error removing socket: %s\n", err)
+			}
+		}
+	}()
 	return s.server.Close()
 }
