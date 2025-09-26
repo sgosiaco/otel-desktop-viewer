@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"io"
@@ -65,11 +66,8 @@ func main() {
 	}()
 
 	router := http.NewServeMux()
-	router.HandleFunc("GET /api/traces", redirectUnix())
-	router.HandleFunc("GET /api/traces/{id}", redirectUnix())
-	router.HandleFunc("GET /api/sampleData", redirectUnix())
-	router.HandleFunc("GET /api/clearData", redirectUnix())
 	router.HandleFunc("GET /traces/{id}", redirectUnix())
+	router.HandleFunc("POST /rpc", redirectUnix())
 
 	// Create an instance of the app structure
 	app := NewApp()
@@ -237,7 +235,18 @@ func redirectUnix() func(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, "http://unix"+r.URL.Path, nil)
+		var reqB io.Reader
+		if r.Method == http.MethodPost {
+			b, err := io.ReadAll(r.Body)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(err.Error()))
+				return
+			}
+			reqB = bytes.NewReader(b)
+		}
+
+		req, err := http.NewRequestWithContext(r.Context(), r.Method, "http://unix"+r.URL.Path, reqB)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
